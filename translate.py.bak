@@ -1,0 +1,1 @@
+# Traduction automatique (DeepL, Google Translate, etc.)

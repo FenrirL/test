@@ -1,0 +1,90 @@
+from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, vfx
+import whisper
+from googletrans import Translator
+import os
+from config import Config  # Importez la classe Config centralisée
+from video_pipeline.utils import setup_logger  # Pour utiliser le même logger
+
+logger = setup_logger("video_pipeline.processing")
+
+def modifier_video_visuellement(
+    input_path,
+    output_path,
+    zoom_factor=None,
+    speed_factor=None
+):
+    """Applique un zoom et un ralentissement à la vidéo."""
+    zoom = zoom_factor if zoom_factor is not None else Config.VIDEO.get("zoom_factor", 1.0)
+    speed = speed_factor if speed_factor is not None else Config.VIDEO.get("slow_factor", 1.0)
+    try:
+        clip = VideoFileClip(input_path)
+        clip = clip.fx(resize, newsize=(clip.w * zoom, clip.h * zoom))
+        # Crop centré (optionnel, à activer selon besoins)
+        clip = clip.fx(crop, x_center=clip.w / 2, y_center=clip.h / 2, width=clip.w, height=clip.h)
+        clip = clip.fx(speedx, factor=speed)
+        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+        logger.info(f"✅ Modification visuelle appliquée: zoom={zoom}, speed={speed}, output={output_path}")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la modification visuelle de la vidéo : {e}")
+        return None
+    finally:
+        try:
+            clip.close()
+        except Exception:
+            pass
+
+def extraire_audio(video_path, audio_output_path):
+    """Extrait la piste audio d'une vidéo."""
+    try:
+        clip = VideoFileClip(video_path)
+        clip.audio.write_audiofile(audio_output_path, verbose=False, logger=None)
+        logger.info(f"✅ Audio extrait vers : {audio_output_path}")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de l'extraction audio de : {video_path} - {e}")
+        return None
+    finally:
+        try:
+            clip.close()
+        except Exception:
+            pass
+
+def transcrire_audio(audio_path, model_name="small"):
+    """Transcrit l'audio en utilisant Whisper."""
+    try:
+        model = whisper.load_model(model_name)
+        result = model.transcribe(audio_path)
+        logger.info(f"✅ Transcription audio réussie (langue détectée: {result.get('language', 'inconnu')}).")
+        return result['text'].strip()
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la transcription audio de : {audio_path} - {e}")
+        return None
+
+def traduire_texte(texte, destination_lang):
+    """Traduit le texte vers la langue cible."""
+    try:
+        translator = Translator()
+        translation = translator.translate(texte, dest=destination_lang)
+        logger.info(f"✅ Texte traduit vers {destination_lang}.")
+        return translation.text.strip()
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la traduction vers {destination_lang} : {e}")
+        return None
+
+def assembler_video_audio(video_path, audio_path, output_path):
+    """Remplace la piste audio d'une vidéo par un nouveau fichier audio."""
+    try:
+        video_clip = VideoFileClip(video_path)
+        audio_clip = AudioFileClip(audio_path)
+        final_clip = video_clip.set_audio(audio_clip)
+        final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+        logger.info(f"✅ Vidéo et audio assemblés : {output_path}")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de l'assemblage vidéo/audio : {e}")
+        return None
+    finally:
+        for c in (locals().get("video_clip"), locals().get("audio_clip"), locals().get("final_clip")):
+            try:
+                if c:
+                    c.close()
+            except Exception:
+                pass
